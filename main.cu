@@ -99,54 +99,73 @@ int main() {
     int width = img.cols;
     int height = img.rows;
     int imgSize = width * height;
-    int ksize = 9;
+    uint mask = 0;
 
     // Crear kernel
-    auto kernel = generateGaborKernel(ksize, 5.0, CV_PI / 4.0, 10.0, 2.0, 0.5);
+    for(int i = 0; i < 3; i++){
+        if(mask == 13){
+            mask = 21;
+            cout<<"Mascara de 21x21"<<endl;
+        }
+        
+        if(mask == 9){
+            mask = 13;
+            cout<<"Mascara de 13x13"<<endl;
+        }
+        
+        if(mask == 0){
+            mask = 9;
+            cout<<"Mascara de 9x9"<<endl;
+        }
 
-    //-------------------- CPU --------------------//
-    auto startCPU = chrono::high_resolution_clock::now();
-    Mat cpuResult = applyGaborCPU(img, kernel, ksize);
-    auto endCPU = chrono::high_resolution_clock::now();
-    auto durationCPU = chrono::duration_cast<chrono::milliseconds>(endCPU - startCPU);
 
-    cout << "Tiempo CPU: " << durationCPU.count() << "ms" << endl;
-    imwrite("gabor_cpu.jpg", cpuResult);
+        auto kernel = generateGaborKernel(mask, 5.0, CV_PI / 4.0, 10.0, 2.0, 0.5);
 
-    //-------------------- CUDA --------------------//
-    uchar3 *d_input, *d_output;
-    float* d_kernel;
+        //-------------------- CPU --------------------//
+        auto startCPU = chrono::high_resolution_clock::now();
+        Mat cpuResult = applyGaborCPU(img, kernel, mask);
+        auto endCPU = chrono::high_resolution_clock::now();
+        auto durationCPU = chrono::duration_cast<chrono::milliseconds>(endCPU - startCPU);
 
-    cudaMalloc(&d_input, sizeof(uchar3) * imgSize);
-    cudaMalloc(&d_output, sizeof(uchar3) * imgSize);
-    cudaMalloc(&d_kernel, sizeof(float) * ksize * ksize);
+        cout << "Tiempo CPU: " << durationCPU.count() << "ms" << endl;
 
-    cudaMemcpy(d_input, img.ptr<uchar3>(), sizeof(uchar3) * imgSize, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_kernel, kernel.data(), sizeof(float) * ksize * ksize, cudaMemcpyHostToDevice);
+        imwrite("gabor_cpu_mask_" +  to_string(mask) + ".jpg", cpuResult);
 
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    cudaEventRecord(start);
+        //-------------------- CUDA --------------------//
+        uchar3 *d_input, *d_output;
+        float* d_kernel;
 
-    dim3 block(16, 16);
-    dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y);
+        cudaMalloc(&d_input, sizeof(uchar3) * imgSize);
+        cudaMalloc(&d_output, sizeof(uchar3) * imgSize);
+        cudaMalloc(&d_kernel, sizeof(float) * mask * mask);
 
-    applyGaborCUDA<<<grid, block>>>(d_input, d_output, d_kernel, ksize, width, height);
-    cudaDeviceSynchronize();
+        cudaMemcpy(d_input, img.ptr<uchar3>(), sizeof(uchar3) * imgSize, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_kernel, kernel.data(), sizeof(float) * mask * mask, cudaMemcpyHostToDevice);
 
-    cudaEventRecord(stop);
-    float gpuTime;
-    cudaEventElapsedTime(&gpuTime, start, stop);
-    cout << "Tiempo GPU: " << gpuTime << "ms" << endl;
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+        cudaEventRecord(start);
 
-    Mat gpuResult(height, width, CV_8UC3);
-    cudaMemcpy(gpuResult.ptr<uchar3>(), d_output, sizeof(uchar3) * imgSize, cudaMemcpyDeviceToHost);
-    imwrite("gabor_cuda.jpg", gpuResult);
+        dim3 block(16, 16);
+        dim3 grid((width + block.x - 1) / block.x, (height + block.y - 1) / block.y);
 
-    cudaFree(d_input);
-    cudaFree(d_output);
-    cudaFree(d_kernel);
+        applyGaborCUDA<<<grid, block>>>(d_input, d_output, d_kernel, mask, width, height);
+        cudaDeviceSynchronize();
+
+        cudaEventRecord(stop);
+        float gpuTime;
+        cudaEventElapsedTime(&gpuTime, start, stop);
+        cout << "Tiempo GPU: " << gpuTime << "ms" << endl;
+
+        Mat gpuResult(height, width, CV_8UC3);
+        cudaMemcpy(gpuResult.ptr<uchar3>(), d_output, sizeof(uchar3) * imgSize, cudaMemcpyDeviceToHost);
+        imwrite("gabor_cuda_mask_" +  to_string(mask) + ".jpg", gpuResult);
+
+        cudaFree(d_input);
+        cudaFree(d_output);
+        cudaFree(d_kernel);
+    }
 
     return 0;
 }
